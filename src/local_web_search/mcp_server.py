@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-import os
-import sys
-import json
-import asyncio
-from typing import List, Dict, Optional, Any, Set
 
+import sys
 from mcp.server.fastmcp import FastMCP
 
-# 从 local_web_search.py 导入搜索函数
-from local_web_search import search, launch_browser
+# 从当前包导入搜索函数
+from .local_web_search import search, launch_browser
 
 # 初始化 FastMCP 服务器
 mcp = FastMCP("web_search")
@@ -85,6 +81,11 @@ URL: {result.get('url', '无URL')}
         # 关闭浏览器
         await browser_instance["close"]()
 
+def main():
+    # 初始化并运行服务器
+    # print("初始化并运行服务器")
+    mcp.run(transport='stdio')
+
 if __name__ == "__main__":
     # 初始化并运行服务器
-    mcp.run(transport='sse')
+    main()
