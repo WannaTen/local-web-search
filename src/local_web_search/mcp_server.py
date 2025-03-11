@@ -9,31 +9,6 @@ from .local_web_search import search, launch_browser
 # 初始化 FastMCP 服务器
 mcp = FastMCP("web_search")
 
-# 用于存储搜索结果的全局变量
-search_results = {}
-
-# 捕获标准输出的类
-class OutputCapture:
-    def __init__(self):
-        self.captured_output = []
-        self.original_stdout = sys.stdout
-    
-    def __enter__(self):
-        sys.stdout = self
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        sys.stdout = self.original_stdout
-    
-    def write(self, text):
-        self.captured_output.append(text)
-    
-    def flush(self):
-        pass
-    
-    def get_output(self):
-        return ''.join(self.captured_output)
-
 @mcp.tool()
 async def web_search(query: str, max_results: int = 5) -> str:
     """执行网络搜索并返回结果。
