@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import sys
+import logging
 from mcp.server.fastmcp import FastMCP
 
 # 从当前包导入搜索函数
@@ -25,6 +25,7 @@ async def web_search(query: str, max_results: int = 5) -> str:
     
     try:
         # 执行搜索并直接获取结果
+        logging.info(f"search: {query}")
         results = await search(
             browser=browser_instance,
             query=query,
@@ -58,7 +59,7 @@ URL: {result.get('url', '无URL')}
 
 def main():
     # 初始化并运行服务器
-    # print("初始化并运行服务器")
+    logging.info("初始化并运行服务器")
     mcp.run(transport='stdio')
 
 if __name__ == "__main__":

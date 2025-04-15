@@ -128,9 +128,9 @@ async def launch_browser(show: bool = False, proxy: Optional[str] = None,
     # 找到本地浏览器的路径
     try:
         executable_path = find_browser(browser)
-        print(f"使用本地浏览器: {executable_path}")
+        logging.info(f"local web browser: {executable_path}")
     except Exception as e:
-        print(f"警告: {str(e)}，将使用Playwright内置的Chromium")
+        logging.info(f"warning: {str(e)}, use playwright built-in chromium")
         executable_path = None
         
     # 启动浏览器上下文
@@ -155,7 +155,9 @@ async def launch_browser(show: bool = False, proxy: Optional[str] = None,
         """关闭浏览器"""
         for page in browser_context.pages:
             await page.close()
+        logging.info(f"close browser")
         await browser_context.close()
+        logging.info(f"close browser context")
         await p.stop()
     
     async def with_page(fn):
@@ -164,11 +166,14 @@ async def launch_browser(show: bool = False, proxy: Optional[str] = None,
         try:
             await apply_stealth_scripts(page)
             await intercept_requests(page)
+            logging.info(f"apply stealth scripts")
             result = await fn(page)
             await page.close()  # 这里只关闭页面
+            logging.info(f"close page")
             return result
         except Exception as e:
             await page.close()
+            logging.info(f"close page")
             raise e
     
     return {
@@ -222,38 +227,97 @@ async def get_search_page_links(page: Page) -> List[SearchResult]:
     () => {
         const links = [];
         const document = window.document;
-        
+
         const isValidUrl = (url) => {
-            try {
-                new URL(url);
-                return true;
-            } catch (error) {
-                return false;
-            }
+            // Basic check, can be improved
+            return url && (url.startsWith('http://') || url.startsWith('https://'));
         };
-        
+
         try {
-            const elements = document.querySelectorAll(".g");
-            elements.forEach((element) => {
-                const titleEl = element.querySelector("h3");
-                const urlEl = element.querySelector("a");
-                const url = urlEl?.getAttribute("href");
-                
-                if (!url || !isValidUrl(url)) return;
-                
-                const item = {
-                    title: titleEl?.textContent || "",
-                    url: url
-                };
-                
-                if (!item.title || !item.url) return;
-                
-                links.push(item);
+            // Try selecting result blocks more generally. Google often uses divs directly under #search or #rso.
+            // Let's try finding divs that contain both an h3 and an a[href].
+            const resultsContainer = document.querySelector('#search') || document.querySelector('#rso') || document.body; // Fallback to body
+            const candidates = Array.from(resultsContainer.querySelectorAll('div')); // Consider direct children or more specific divs if needed
+
+            candidates.forEach(element => {
+                // Find the first link and h3 within this div. Be mindful that structure might vary.
+                const linkElement = element.querySelector('a[href]');
+                const titleElement = element.querySelector('h3');
+
+                if (linkElement && titleElement) {
+                    const url = linkElement.getAttribute('href');
+                    const title = titleElement.textContent || "";
+
+                    // Further checks: ensure it's a plausible result link
+                    // Avoid internal links, related searches, fragments etc.
+                    if (url && isValidUrl(url) && title && url.startsWith('http') && !url.includes('google.com/') && !url.startsWith('#')) {
+
+                        // Check if we've already added a very similar URL (e.g., http vs https, slight param diffs)
+                        let urlObj;
+                        try {
+                            urlObj = new URL(url);
+                        } catch (e) {
+                            // If URL is invalid, skip
+                            console.error(`Invalid URL encountered: ${url}`);
+                            return;
+                        }
+                        const simplifiedUrl = urlObj.hostname + urlObj.pathname;
+                        const alreadyExists = links.some(l => {
+                            try {
+                                const existingUrlObj = new URL(l.url);
+                                return (existingUrlObj.hostname + existingUrlObj.pathname) === simplifiedUrl;
+                            } catch { return false; } // Ignore errors comparing potentially invalid existing URLs
+                        });
+
+                        if (!alreadyExists) {
+                            links.push({ title: title.trim(), url: url });
+                        }
+                    }
+                }
             });
+
+            // Fallback if the general approach yields no results
+            if (links.length === 0) {
+                 console.log("Primary selector logic failed, trying fallback class selectors...");
+                 // Example fallback selectors (these WILL change frequently and need updates)
+                 // Combine common older and newer patterns observed over time. Inspect page source for current ones.
+                 document.querySelectorAll('div.g, div.Gx5Zad, div.DhN8Cf, div.tF2Cxc, [data-hveid]').forEach(element => { // Added [data-hveid] as another potential container attribute
+                     const linkElement = element.querySelector('a[href]');
+                     const titleElement = element.querySelector('h3');
+
+                     if (linkElement && titleElement) {
+                         const url = linkElement.getAttribute('href');
+                         const title = titleElement.textContent || "";
+                         if (url && isValidUrl(url) && title && url.startsWith('http') && !url.includes('google.com/') && !url.startsWith('#')) {
+                             let urlObj;
+                             try {
+                                 urlObj = new URL(url);
+                             } catch (e) {
+                                 console.error(`Invalid URL encountered in fallback: ${url}`);
+                                 return;
+                             }
+                             const simplifiedUrl = urlObj.hostname + urlObj.pathname;
+                             const alreadyExists = links.some(l => {
+                                try {
+                                    const existingUrlObj = new URL(l.url);
+                                    return (existingUrlObj.hostname + existingUrlObj.pathname) === simplifiedUrl;
+                                } catch { return false; }
+                             });
+                             if (!alreadyExists) {
+                                 links.push({ title: title.trim(), url: url });
+                             }
+                         }
+                     }
+                 });
+            }
+
         } catch (error) {
-            console.error(error);
+            console.error('Error extracting links:', error);
         }
-        
+
+        // Limit the number of results explicitly here if needed, although search URL param 'num' should handle it.
+        // return links.slice(0, 10); // Example limit if too many irrelevant results are caught
+
         return links;
     }
     """)
@@ -305,7 +369,8 @@ def get_search_url(query: str, engine: str = "google", exclude_domains: List[str
         params = {
             "q": search_query,
             "num": str(max_results),
-            "udm": "14"  # web标签
+            "udm": "14",  # web标签
+            "lr": "lang_en"
         }
         return f"https://www.google.com/search?{urlencode(params)}"
 
@@ -365,7 +430,7 @@ async def search(browser, query: str, max_results: int = 10,
     
     # 获取搜索结果链接
     links = await browser["with_page"](lambda page: _search_page(page, url))
-    
+    logging.info(f"search_page_links: {links}")
     if not links:
         return {"query": query, "results": []}
     
@@ -418,7 +483,9 @@ async def search(browser, query: str, max_results: int = 10,
 async def _search_page(page: Page, url: str) -> List[Dict[str, str]]:
     """导航到搜索页并提取链接"""
     await page.goto(url, wait_until="domcontentloaded")
-    return await get_search_page_links(page)
+    links = await get_search_page_links(page)
+    logger.info(f"Extracted links from {url}: {links}")
+    return links
 
 async def _visit_link_with_retry(page: Page, url: str, max_retries: int = 3) -> Dict[str, str]:
     """访问链接并提取内容，支持重试"""

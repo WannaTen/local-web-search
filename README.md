@@ -39,7 +39,7 @@
     "command": "uv",
     "args": [
       "--directory",
-      "path/to/local-web-search",
+      "path/to/local_web_search",
       "run",
       "local_web_search"
     ]
